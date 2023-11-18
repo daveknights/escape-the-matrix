@@ -44,7 +44,7 @@ while (xPos < 753) {
     xPos += 50;
 }
 
-const randomXPos = () => xPosArray[Math.floor(Math.random() * (xPosArray.length - 1))];
+const randomXPos = () => xPosArray[Math.floor(Math.random() * (xPosArray.length))];
 
 const randomSize = () => Math.floor(Math.random() * (10 - 5)) + 5;
 
@@ -83,7 +83,7 @@ const codeStack = size => Composites.stack(randomXPos(), -((24 * size) + 10), 1,
 });
 
 const makeSprite = (friction, image, x, y, h, w, rand = false) => {
-    const xpos = rand ? randomXPos() : x;
+    const xpos = rand ? randomXPos() + 12 : x;
     const mask = image === 'mr-anderson' || image === 'neo' ? {} : { mask: playerCategory };
     return Bodies.rectangle(xpos, y, h, w, {
         frictionAir: friction,
