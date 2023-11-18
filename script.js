@@ -1,35 +1,47 @@
 const Engine = Matter.Engine,
     Render = Matter.Render,
-    Runner = Matter.Runner,
     Bodies = Matter.Bodies,
     Body = Matter.Body
-    Events = Matter.Events,
     Collision = Matter.Collision,
     Composites = Matter.Composites,
     Composite = Matter.Composite;
 const engine = Engine.create();
 const render = Render.create({
-    element: document.body,
+    canvas: document.querySelector('canvas'),
     engine: engine,
     options: {
         background: '#00110b',
         wireframes: false
     },
 });
+const ctx = render.canvas.getContext('2d');
 const playerCategory = 0x0002;
-const xPosArray = [];
-const codeStacks = [];
-const pills = [];
+const stages = {
+    started: false,
+    escaped: false,
+    rescued: false
+}
+let xPosArray = [];
+let codeStacks = [];
+let pills = [];
+let morpheuses = [];
+let smiths = [];
+let phones = [];
+let gameStatus = 'escapeInfo';
 let codeDrop = 0;
 let pillDrop = 0;
+let morpheusDrop = 0;
+let smithDrop = 0;
+let phoneDrop = 0;
 let lastTime = 0;
-let playing = true;
-let xPos = 43;
+let inTheMatrix = false;
+let xPos = 53;
+let neo = null;
 // Create arrray with pre defined x value for code stacks
-while (xPos < 734) {
+while (xPos < 753) {
     xPosArray.push(xPos);
 
-    xPos += 30;
+    xPos += 50;
 }
 
 const randomXPos = () => xPosArray[Math.floor(Math.random() * (xPosArray.length - 1))];
@@ -37,6 +49,17 @@ const randomXPos = () => xPosArray[Math.floor(Math.random() * (xPosArray.length 
 const randomSize = () => Math.floor(Math.random() * (10 - 5)) + 5;
 
 const randomChar = () => Math.floor(Math.random() * 20) + 1;
+
+const setText = (text, xPos) => {
+    ctx.font = '24px Courier New';
+    ctx.fillStyle = '#18ce6d';
+    ctx.fillText(text, xPos, 200);
+}
+
+const setGameStatus = (stage, status) => {
+    !stages[stage] && setTimeout(() => gameStatus = status, 2500);
+    stages[stage] = true;
+};
 // Makes a wall or ground
 const boundry = (x, y, w, h) => {
     return Bodies.rectangle(x, y, w, h, {
@@ -59,57 +82,47 @@ const codeStack = size => Composites.stack(randomXPos(), -((24 * size) + 10), 1,
     });
 });
 
-const pill = xPos => {
-    return Bodies.rectangle(xPos, -50, 24, 50, {
-        frictionAir: 0.1,
-        collisionFilter: { mask: playerCategory },
+const makeSprite = (friction, image, x, y, h, w, rand = false) => {
+    const xpos = rand ? randomXPos() : x;
+    const mask = image === 'mr-anderson' || image === 'neo' ? {} : { mask: playerCategory };
+    return Bodies.rectangle(xpos, y, h, w, {
+        frictionAir: friction,
+        collisionFilter: mask,
         render: {
             sprite: {
-                texture: 'assets/redPill.png',
+                texture: `assets/${image}.png`,
             }
-        }
-    });
-}
+        },
+        inertia: Infinity,
+    }
+)};
 
-const player = Bodies.rectangle(400, 560, 50, 80, {
-    inertia: Infinity,
-    collisionFilter: {
-        category: playerCategory,
-    },
-    render: {
-        sprite: {
-            texture: 'assets/neo.png',
+const checkForOffScreenAndCollision = (sprites, status) => {
+    for (const sprite of sprites) {
+        if (sprite.position.y > 600) {
+            Composite.remove(engine.world, sprite);
+            sprites.splice(0, 1);
+        }
+
+        if (Collision.collides(sprite, neo) !== null) {
+            gameStatus = status;
         }
     }
-});
+};
 
-Composite.add(engine.world, [player, boundry(400, 600, 810, 1), boundry(-10, 300, 20, 600), boundry(810, 300, 20, 600)]);
-
-document.addEventListener('keydown', e => {
-    const key = e.code;
-
-    if (key === 'ArrowRight') {
-        Body.applyForce(player, {
-            x: player.position.x,
-            y: player.position.y
-          }, {x: 0.075, y: 0});
-    } else if (key === 'ArrowLeft') {
-        Body.applyForce(player, {
-            x: player.position.x,
-            y: player.position.y
-          }, {x: -0.075, y: 0});
-    }
-});
-
-Render.run(render);
-
-function draw(time){
-    Engine.update(engine, 1000/60);
+const play = time => {
+    const outfit = gameStatus === 'escape' ? 'mr-anderson' : 'neo';
+    !inTheMatrix && (neo = makeSprite(0.01, outfit, 400, 560, 44, 80));
+    !inTheMatrix && Composite.add(engine.world, [neo, boundry(400, 600, 810, 1), boundry(-10, 300, 20, 600), boundry(810, 300, 20, 600)]);
+    inTheMatrix = true;
 
     codeDrop += time - lastTime;
-    pillDrop += time - lastTime;
+    !stages.escaped && (pillDrop += time - lastTime);
+    stages.escaped && (morpheusDrop += time - lastTime);
+    stages.rescued && (smithDrop += time - lastTime);
+    stages.rescued && (phoneDrop += time - lastTime);
 
-    if (codeDrop > 250) {
+    if (codeDrop > 500) {
         const newStack = codeStack(randomSize());
 
         codeStacks.push(newStack);
@@ -120,55 +133,143 @@ function draw(time){
 
     if (codeStacks.length) {
         for (let [i, stack] of codeStacks.entries()) {
-            // Remove offscreen items
+
             if (stack.bodies[0].position.y > 600) {
                 Composite.remove(engine.world, stack);
                 codeStacks.splice(i, 1);
                 i--;
             }
-            // Stop animation on collision
+
             for (const body in stack.bodies) {
-                if (Collision.collides(stack.bodies[body], player) !== null) {
-                    Render.stop(render);
-                    playing = false;
+                if (Collision.collides(stack.bodies[body], neo) !== null) {
+                    gameStatus = 'notTheOne';
                 }
             }
         }
     }
-    // Drop pill every 10 seconds
-    if (pillDrop > 10000) {
+
+    if (!stages.escaped && pillDrop > 10000) {
         let newPill;
+        let x = 25;
 
-        if (player.position.x > 400) {
-            newPill = pill(25)
-        } else {
-            newPill = pill(775)
-        }
+        neo.position.x < 400 && (x = 775);
 
-         pills.push(newPill);
-         Composite.add(engine.world, newPill);
+        newPill = makeSprite(0.1, 'redPill', x, -50, 24, 50);
+
+        pills.push(newPill);
+        Composite.add(engine.world, newPill);
 
         pillDrop = 0;
     }
 
-    if (pills.length) {
-        for (const pill of pills) {
-            // Remove offscreen items
-            if (pill.position.y > 600) {
-                Composite.remove(engine.world, pill);
-                pills.splice(0, 1);
-            }
-            // Stop animation on collision
-            if (Collision.collides(pill, player) !== null) {
-                Render.stop(render);
-                playing = false;
-            }
-        }
+    pills.length && checkForOffScreenAndCollision(pills, 'rescueInfo');
+
+    if (!stages.rescued && morpheusDrop > 10000) {
+        let newMorpheus;
+        let x = 25;
+
+        neo.position.x < 400 && (x = 775);
+
+        newMorpheus = makeSprite(0.1, 'morpheus', x, -80, 44, 80);
+
+        morpheuses.push(newMorpheus);
+        Composite.add(engine.world, newMorpheus);
+
+        morpheusDrop = 0;
     }
 
-    lastTime = time;
+    morpheuses.length && checkForOffScreenAndCollision(morpheuses, 'exitInfo');
 
-    playing && window.requestAnimationFrame(draw);
+    if (stages.rescued && smithDrop > 5000) {
+        let newSmith = makeSprite(0.05, 'agent-smith', 0, -80, 44, 80, true);
+
+        smiths.push(newSmith);
+        Composite.add(engine.world, newSmith);
+
+        smithDrop = 0;
+    }
+
+    smiths.length && checkForOffScreenAndCollision(smiths, 'notTheOne');
+
+    if (stages.rescued && phoneDrop > 10000) {
+        let newPhone;
+        let position = 'left';
+        let x = 25;
+
+        if (neo.position.x < 400) {
+            position = 'right';
+            x = 775;
+        }
+
+        newPhone = makeSprite(0.1, `${position}-phone`, x, -80, 44, 80);
+
+        phones.push(newPhone);
+        Composite.add(engine.world, newPhone);
+
+        phoneDrop = 0;
+    }
+
+    phones.length && checkForOffScreenAndCollision(phones, 'theOne')
+
+    lastTime = time;
 }
+
+document.addEventListener('keydown', e => {
+    const key = e.code;
+
+    if (key === 'ArrowRight') {
+        Body.applyForce(neo, {
+            x: neo.position.x,
+            y: neo.position.y
+          }, {x: 0.075, y: 0});
+    } else if (key === 'ArrowLeft') {
+        Body.applyForce(neo, {
+            x: neo.position.x,
+            y: neo.position.y
+          }, {x: -0.075, y: 0});
+    }
+});
+
+function draw(time){
+    Engine.update(engine, 1000/60);
+
+    switch (gameStatus) {
+        case 'escapeInfo':
+            setText('Take the red pill to escape The Matrix', 126);
+            setGameStatus('started', 'escape');
+            break;
+        case 'rescueInfo':
+            Composite.clear(engine.world);
+            inTheMatrix = false;
+            codeStacks = [];
+            pills = [];
+            setText('Go back in and rescue Morpheus', 185);
+            setGameStatus('escaped', 'rescue');
+            break;
+        case 'exitInfo':
+            Composite.clear(engine.world);
+            inTheMatrix = false;
+            codeStacks = [];
+            morpheuses = [];
+            setText('Get to a phone to leave The Matrix', 155);
+            setGameStatus('rescued', 'exit');
+            break;
+        case 'theOne':
+            Composite.clear(engine.world);
+            setText(`You're The One`, 300);
+            break;
+        case 'notTheOne':
+            Composite.clear(engine.world);
+            setText(`You're not The One`, 270);
+            break;
+        default:
+            play(time);
+            break;
+    }
+
+    window.requestAnimationFrame(draw);
+}
+
+Render.run(render);
 
 window.requestAnimationFrame(draw);
